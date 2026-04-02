@@ -5,8 +5,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/process': 'http://localhost:5000',
-      '/download': 'http://localhost:5000'
+      '/process': 'http://localhost:5001',
+      '/download': 'http://localhost:5001'
     }
   }
 });

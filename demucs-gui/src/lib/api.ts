@@ -5,6 +5,8 @@ interface StemResponse {
     drums: string;
     bass: string;
     other: string;
+    guitar: string;
+    piano: string;
   }
   session_id: string;
 }
@@ -14,7 +16,26 @@ interface ProcessedStems {
   drums: string;
   bass: string;
   other: string;
+  guitar: string;
+  piano: string;
   session_id: string;
+}
+
+export interface YouTubeVideo {
+  id: string;
+  title: string;
+  channel: string;
+  duration: number;
+  thumbnail: string;
+  url: string;
+}
+
+export interface YouTubeDownloadResult {
+  message: string;
+  session_id: string;
+  filename: string;
+  title: string;
+  download_url: string;
 }
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
@@ -65,17 +86,19 @@ export async function uploadAudio(file: File): Promise<ProcessedStems> {
       drums: data.stems.drums || '',
       bass: data.stems.bass || '',
       other: data.stems.other || '',
+      guitar: data.stems.guitar || '',
+      piano: data.stems.piano || '',
       session_id: data.session_id || ''
     };
 
   } catch (error) {
     console.error('API Error:', error);
-    
+
     // Gestione più specifica degli errori di rete
     if (error instanceof TypeError && error.message === 'Failed to fetch') {
       throw new Error('Unable to connect to the server. Please check your internet connection.');
     }
-    
+
     // Rilancia l'errore se è già un'istanza di Error
     if (error instanceof Error) {
       throw error;
@@ -105,5 +128,46 @@ export async function cleanupSession(sessionId: string): Promise<void> {
   } catch (error) {
     console.warn('Failed to cleanup session:', error);
     // Non lanciamo errore, è solo cleanup
+  }
+}
+
+// YouTube Search
+export async function searchYouTube(query: string): Promise<YouTubeVideo[]> {
+  try {
+    const response = await fetch(`${API_URL}/youtube/search?q=${encodeURIComponent(query)}`);
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to search YouTube');
+    }
+
+    const data = await response.json();
+    return data.results || [];
+  } catch (error) {
+    console.error('YouTube Search Error:', error);
+    throw error;
+  }
+}
+
+// YouTube Download
+export async function downloadYouTube(url: string): Promise<YouTubeDownloadResult> {
+  try {
+    const response = await fetch(`${API_URL}/youtube/download`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ url })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to download from YouTube');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('YouTube Download Error:', error);
+    throw error;
   }
 }
