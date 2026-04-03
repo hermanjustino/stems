@@ -14,10 +14,10 @@ interface AudioPlayerContextType {
   currentTime: number;
   duration: number;
   masterVolume: number;
+  isBuffering: boolean;
   setStems: (stems: Stem[]) => void;
   togglePlay: () => void;
   seek: (time: number) => void;
-  registerAudio: (stemName: string, audio: HTMLAudioElement) => void;
   setStemVolume: (stemName: string, volume: number) => void;
   toggleStemMute: (stemName: string) => void;
   setMasterVolume: (volume: number) => void;
@@ -26,161 +26,263 @@ interface AudioPlayerContextType {
 
 const AudioPlayerContext = createContext<AudioPlayerContextType | undefined>(undefined);
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5001';
+
 export function AudioPlayerProvider({ children }: { children: React.ReactNode }) {
   const [stems, setStems] = useState<Stem[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [masterVolume, setMasterVolumeState] = useState(1);
+  const [isBuffering, setIsBuffering] = useState(false);
   
-  const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
-  const isSeekingRef = useRef(false);
-  const isPlayingRef = useRef(false);
+  // Web Audio Context refs
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const buffersRef = useRef<Map<string, AudioBuffer>>(new Map());
+  const sourcesRef = useRef<Map<string, AudioBufferSourceNode>>(new Map());
+  const gainNodesRef = useRef<Map<string, GainNode>>(new Map());
   
-  // Update ref when isPlaying changes
-  useEffect(() => {
-    isPlayingRef.current = isPlaying;
-  }, [isPlaying]);
+  // Timing state
+  const offsetTimeRef = useRef(0);
+  const startedAtRef = useRef(0);
+  const rafRef = useRef<number | null>(null);
 
-  // Register audio element for a stem
-  const registerAudio = useCallback((stemName: string, audio: HTMLAudioElement) => {
-    audioElementsRef.current.set(stemName, audio);
-    
-    audio.addEventListener('loadedmetadata', () => {
-      let maxDuration = 0;
-      audioElementsRef.current.forEach((el: HTMLAudioElement) => {
-        if (el.duration > maxDuration) maxDuration = el.duration;
-      });
-      setDuration(maxDuration);
-    });
-    
-    audio.addEventListener('timeupdate', () => {
-      if (!isSeekingRef.current && isPlayingRef.current) {
-        setCurrentTime(audio.currentTime);
-      }
-    });
-    
-    audio.addEventListener('ended', () => {
-      const audios = Array.from(audioElementsRef.current.values());
-      const allEnded = audios.length > 0 && audios.every((el) => el.ended);
-      if (allEnded) setIsPlaying(false);
-    });
-  }, []);
-
-  // Sync all audio elements
-  const syncAudios = useCallback((targetTime: number) => {
-    audioElementsRef.current.forEach((audio: HTMLAudioElement) => {
-      if (Math.abs(audio.currentTime - targetTime) > 0.05) {
-        audio.currentTime = targetTime;
-      }
-    });
-  }, []);
-
-  // Handle play/pause
-  const togglePlay = useCallback(() => {
-    if (isPlaying) {
-      audioElementsRef.current.forEach((audio: HTMLAudioElement) => {
-        audio.pause();
-      });
-      setIsPlaying(false);
-    } else {
-      audioElementsRef.current.forEach((audio: HTMLAudioElement) => {
-        audio.play().catch((err: Error) => {
-          if (err.name === 'AbortError') {
-            console.warn('Audio playback aborted (likely due to user interaction or new playback request).');
-          } else {
-            console.error(`Error playing ${audio.src}:`, err);
-          }
-        });
-      });
-      setIsPlaying(true);
+  // Initialize audio context lazily
+  const getAudioContext = () => {
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
     }
-  }, [isPlaying]);
+    return audioCtxRef.current;
+  };
 
-  // Seek functionality
-  const seek = useCallback((time: number) => {
-    isSeekingRef.current = true;
-    setCurrentTime(time);
-    syncAudios(time);
-    
-    setTimeout(() => {
-      isSeekingRef.current = false;
-    }, 100);
-  }, [syncAudios]);
+  // Decode audio data when stems change
+  useEffect(() => {
+    if (stems.length === 0) {
+      buffersRef.current.clear();
+      setDuration(0);
+      setCurrentTime(0);
+      offsetTimeRef.current = 0;
+      return;
+    }
 
-  // Set individual stem volume
-  const setStemVolume = useCallback((stemName: string, volume: number) => {
-    setStems((prev: Stem[]) => prev.map((stem: Stem) => {
-      if (stem.name === stemName) {
-        const audio = audioElementsRef.current.get(stemName);
-        if (audio) {
-          audio.volume = volume * masterVolume;
-        }
-        return { ...stem, volume, muted: volume === 0 };
+    const loadStems = async () => {
+      setIsBuffering(true);
+      const ctx = getAudioContext();
+      const newBuffers = new Map<string, AudioBuffer>();
+      const newGainNodes = new Map<string, GainNode>();
+      let maxDuration = 0;
+
+      try {
+        await Promise.all(stems.map(async (stem) => {
+          const response = await fetch(`${API_URL}${stem.url}`);
+          const arrayBuffer = await response.arrayBuffer();
+          const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+          newBuffers.set(stem.name, audioBuffer);
+          
+          if (audioBuffer.duration > maxDuration) {
+            maxDuration = audioBuffer.duration;
+          }
+
+          // Create and persist gain node
+          if (!gainNodesRef.current.has(stem.name)) {
+            const gainNode = ctx.createGain();
+            gainNode.gain.value = stem.muted ? 0 : stem.volume;
+            gainNode.connect(ctx.destination);
+            newGainNodes.set(stem.name, gainNode);
+          } else {
+            const gainNode = gainNodesRef.current.get(stem.name)!;
+            gainNode.gain.value = stem.muted ? 0 : stem.volume;
+            newGainNodes.set(stem.name, gainNode);
+          }
+        }));
+
+        buffersRef.current = newBuffers;
+        gainNodesRef.current = newGainNodes;
+        setDuration(maxDuration);
+      } catch (err) {
+        console.error('Failed to decode audio buffers', err);
+      } finally {
+        setIsBuffering(false);
       }
-      return stem;
-    }));
-  }, [masterVolume]);
+    };
 
-  // Toggle stem mute
-  const toggleStemMute = useCallback((stemName: string) => {
-    setStems((prev: Stem[]) => prev.map((stem: Stem) => {
-      if (stem.name === stemName) {
-        const audio = audioElementsRef.current.get(stemName);
-        if (audio) {
-          const newMuted = !stem.muted;
-          audio.muted = newMuted;
-          return { ...stem, muted: newMuted };
-        }
-      }
-      return stem;
-    }));
-  }, []);
-
-  // Set master volume
-  const setMasterVolume = useCallback((volume: number) => {
-    setMasterVolumeState(volume);
-    audioElementsRef.current.forEach((audio: HTMLAudioElement, name: string) => {
-      const stem = stems.find((s: Stem) => s.name === name);
-      if (stem) {
-        audio.volume = (stem.volume !== undefined ? stem.volume : 1) * volume;
-      } else {
-        audio.volume = volume;
-      }
-    });
+    // Only load if we haven't loaded these exact stems
+    const allLoaded = stems.every(s => buffersRef.current.has(s.name));
+    if (!allLoaded) {
+      loadStems();
+    }
   }, [stems]);
 
-  // Reset player state
+  // Sync loop for current time
+  const updateTime = useCallback(() => {
+    if (!isPlaying) return;
+    const ctx = audioCtxRef.current;
+    if (ctx) {
+      const now = offsetTimeRef.current + (ctx.currentTime - startedAtRef.current);
+      setCurrentTime(now);
+      if (now >= duration && duration > 0) {
+        setIsPlaying(false); // End of track
+        offsetTimeRef.current = 0;
+        setCurrentTime(0);
+      } else {
+        rafRef.current = requestAnimationFrame(updateTime);
+      }
+    }
+  }, [isPlaying, duration]);
+
+  useEffect(() => {
+    if (isPlaying) {
+      rafRef.current = requestAnimationFrame(updateTime);
+    } else {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    }
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [isPlaying, updateTime]);
+
+  const togglePlay = useCallback(() => {
+    if (stems.length === 0 || isBuffering) return;
+    const ctx = getAudioContext();
+
+    if (isPlaying) {
+      // Pause
+      sourcesRef.current.forEach(source => {
+        try { source.stop(); } catch (e) {}
+        source.disconnect();
+      });
+      sourcesRef.current.clear();
+      
+      // Save offset
+      offsetTimeRef.current += (ctx.currentTime - startedAtRef.current);
+      if (ctx.state === 'running') ctx.suspend();
+      setIsPlaying(false);
+    } else {
+      // Play
+      if (ctx.state === 'suspended') ctx.resume();
+      let offset = offsetTimeRef.current;
+      if (offset >= duration) {
+          offset = 0;
+          offsetTimeRef.current = 0;
+      }
+      
+      startedAtRef.current = ctx.currentTime;
+      
+      stems.forEach(stem => {
+        const buffer = buffersRef.current.get(stem.name);
+        const gainNode = gainNodesRef.current.get(stem.name);
+        if (buffer && gainNode) {
+          const source = ctx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(gainNode);
+          source.start(0, offset);
+          sourcesRef.current.set(stem.name, source);
+        }
+      });
+      
+      setIsPlaying(true);
+    }
+  }, [isPlaying, stems, isBuffering, duration]);
+
+  const seek = useCallback((time: number) => {
+    if (stems.length === 0 || isBuffering) return;
+    const ctx = getAudioContext();
+    
+    offsetTimeRef.current = Math.max(0, Math.min(time, duration));
+    setCurrentTime(offsetTimeRef.current);
+
+    if (isPlaying) {
+      // Stop current sources
+      sourcesRef.current.forEach(source => {
+        try { source.stop(); } catch(e) {}
+        source.disconnect();
+      });
+      sourcesRef.current.clear();
+
+      // Restart sources at new offset
+      startedAtRef.current = ctx.currentTime;
+      stems.forEach(stem => {
+        const buffer = buffersRef.current.get(stem.name);
+        const gainNode = gainNodesRef.current.get(stem.name);
+        if (buffer && gainNode) {
+          const source = ctx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(gainNode);
+          source.start(0, offsetTimeRef.current);
+          sourcesRef.current.set(stem.name, source);
+        }
+      });
+    }
+  }, [isPlaying, stems, isBuffering, duration]);
+
+  const setStemVolume = useCallback((stemName: string, volume: number) => {
+    setStems(prev => prev.map(s => s.name === stemName ? { ...s, volume } : s));
+    const gainNode = gainNodesRef.current.get(stemName);
+    if (gainNode) {
+        // Use setTargetAtTime to prevent clicking noise
+        // Minimum time constant is used to smooth the volume change
+        gainNode.gain.setTargetAtTime(volume, getAudioContext().currentTime, 0.05);
+    }
+  }, []);
+
+  const toggleStemMute = useCallback((stemName: string) => {
+    setStems(prev => prev.map(s => {
+      if (s.name === stemName) {
+        const newMuted = !s.muted;
+        const gainNode = gainNodesRef.current.get(stemName);
+        if (gainNode) {
+           gainNode.gain.setTargetAtTime(newMuted ? 0 : s.volume, getAudioContext().currentTime, 0.05);
+        }
+        return { ...s, muted: newMuted };
+      }
+      return s;
+    }));
+  }, []);
+
+  const setMasterVolume = useCallback((volume: number) => {
+    setMasterVolumeState(volume);
+  }, []);
+
   const reset = useCallback(() => {
-    audioElementsRef.current.forEach((audio: HTMLAudioElement) => {
-      audio.pause();
-      audio.currentTime = 0;
+    sourcesRef.current.forEach(source => {
+        try { source.stop(); } catch(e) {}
+        source.disconnect();
     });
-    audioElementsRef.current.clear(); // Important to clear on reset
+    sourcesRef.current.clear();
+    setStems([]);
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(0);
-    setStems([]);
+    offsetTimeRef.current = 0;
+    buffersRef.current.clear();
   }, []);
 
-  const value = {
-    stems,
-    isPlaying,
-    currentTime,
-    duration,
-    masterVolume,
-    setStems,
-    registerAudio,
-    togglePlay,
-    seek,
-    setStemVolume,
-    toggleStemMute,
-    setMasterVolume,
-    reset
-  };
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      sourcesRef.current.forEach(s => { try { s.stop(); } catch(e){} s.disconnect(); });
+      audioCtxRef.current?.close();
+    };
+  }, []);
 
   return (
-    <AudioPlayerContext.Provider value={value}>
+    <AudioPlayerContext.Provider
+      value={{
+        stems,
+        isPlaying,
+        currentTime,
+        duration,
+        masterVolume,
+        isBuffering,
+        setStems,
+        togglePlay,
+        seek,
+        setStemVolume,
+        toggleStemMute,
+        setMasterVolume,
+        reset,
+      }}
+    >
       {children}
     </AudioPlayerContext.Provider>
   );

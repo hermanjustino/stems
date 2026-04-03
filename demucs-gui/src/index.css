@@ -103,3 +103,112 @@ input[type='range']:active::-webkit-slider-thumb {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--apple-text);
 }
+
+/* 3D Stem Player Styles */
+.stem-device-container {
+  width: 340px;
+  height: 340px;
+  border-radius: 50%;
+  background: #d4c5b6; /* Tan/beige base */
+  position: relative;
+  /* Soft Neumorphism */
+  box-shadow: 
+    -15px -15px 30px rgba(255, 255, 255, 0.6),
+    15px 15px 30px rgba(180, 160, 140, 0.7),
+    inset -2px -2px 6px rgba(180, 160, 140, 0.3),
+    inset 2px 2px 6px rgba(255, 255, 255, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.stem-center-button {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #d4c5b6;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10;
+  box-shadow: 
+    -4px -4px 8px rgba(255, 255, 255, 0.6),
+    4px 4px 8px rgba(180, 160, 140, 0.6),
+    inset -1px -1px 2px rgba(180, 160, 140, 0.2),
+    inset 1px 1px 2px rgba(255, 255, 255, 0.4);
+  border: none;
+  outline: none;
+}
+.stem-center-button:active {
+  box-shadow: 
+    inset -4px -4px 8px rgba(255, 255, 255, 0.6),
+    inset 4px 4px 8px rgba(180, 160, 140, 0.6);
+}
+
+.stem-strip {
+  background: #c5b6a7;
+  border-radius: 20px;
+  box-shadow: 
+    inset -3px -3px 6px rgba(255, 255, 255, 0.4),
+    inset 3px 3px 6px rgba(170, 150, 130, 0.7),
+    1px 1px 2px rgba(255, 255, 255, 0.2);
+}
+
+.stem-node {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: #a8988a;
+  transition: all 0.2s ease;
+  box-shadow: inset 1px 1px 2px rgba(0,0,0,0.2);
+}
+.stem-node.active {
+  box-shadow: inset 1px 1px 2px rgba(255,255,255,0.4);
+}
+
+/* Neumorphic Modal */
+.stem-modal-overlay {
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.stem-modal-container {
+  background: #d4c5b6;
+  border-radius: 32px;
+  box-shadow: 
+    -10px -10px 20px rgba(255, 255, 255, 0.6),
+    10px 10px 20px rgba(180, 160, 140, 0.7);
+}
+
+.stem-input {
+  background: #c5b6a7;
+  border: none;
+  outline: none;
+  box-shadow: 
+    inset -3px -3px 6px rgba(255, 255, 255, 0.4),
+    inset 3px 3px 6px rgba(170, 150, 130, 0.7);
+  transition: all 0.2s ease;
+}
+
+.stem-input:focus {
+  box-shadow: 
+    inset -4px -4px 8px rgba(255, 255, 255, 0.5),
+    inset 4px 4px 8px rgba(170, 150, 130, 0.8);
+}
+
+.stem-button {
+  background: #d4c5b6;
+  border: none;
+  outline: none;
+  box-shadow: 
+    -3px -3px 6px rgba(255, 255, 255, 0.6),
+    3px 3px 6px rgba(180, 160, 140, 0.6);
+  transition: all 0.2s ease;
+}
+
+.stem-button:active {
+  box-shadow: 
+    inset -2px -2px 4px rgba(255, 255, 255, 0.5),
+    inset 2px 2px 4px rgba(180, 160, 140, 0.5);
+}

@@ -1,73 +1,15 @@
 import { useState, useEffect } from 'react';
 import { AudioPlayerProvider, useAudioPlayer } from './lib/AudioContext';
-import { Header } from './components/Header';
-import { FileUpload } from './components/FileUpload';
-import { PlayerController } from './components/PlayerController';
-import { StemMixer } from './components/StemMixer';
-import { YouTubeSearch } from './components/YouTubeSearch';
-import { YouTubeDownloader } from './components/YouTubeDownloader';
-import { uploadAudio, checkServerStatus, cleanupSession, YouTubeVideo } from './lib/api';
-import { Music4, Wand2, Sparkles, Upload, Youtube } from 'lucide-react';
-
-function Player() {
-  return (
-    <div className="space-y-8 animate-in">
-      <PlayerController />
-      <StemMixer />
-    </div>
-  );
-}
-
-function UploadSection() {
-  const { setStems, reset } = useAudioPlayer();
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-
-  const handleFileUpload = async (file: File) => {
-    setIsProcessing(true);
-    try {
-      if (currentSessionId) {
-        await cleanupSession(currentSessionId);
-      }
-
-      const result = await uploadAudio(file);
-
-      // Safety check: ensure we actually have URLs for the stems
-      if (!result.vocals && !result.drums) {
-        throw new Error('Processing failed: No stems were returned by the server.');
-      }
-
-      setCurrentSessionId(result.session_id);
-
-      setStems([
-        { name: 'Vocals', url: result.vocals, color: 'bg-pink-500', volume: 1, muted: false },
-        { name: 'Drums', url: result.drums, color: 'bg-indigo-500', volume: 1, muted: false },
-        { name: 'Bass', url: result.bass, color: 'bg-blue-500', volume: 1, muted: false },
-        { name: 'Guitar', url: result.guitar, color: 'bg-amber-500', volume: 1, muted: false },
-        { name: 'Piano', url: result.piano, color: 'bg-cyan-500', volume: 1, muted: false },
-        { name: 'Other', url: result.other, color: 'bg-gray-400', volume: 1, muted: false }
-      ]);
-    } catch (err) {
-      console.error('Upload failed:', err);
-      reset();
-      setCurrentSessionId(null);
-      alert(err instanceof Error ? err.message : 'An error occurred during processing');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  return <FileUpload isProcessing={isProcessing} onFileUpload={handleFileUpload} />;
-}
+import { StemPlayer } from './components/StemPlayer';
+import { AddSongModal } from './components/AddSongModal';
+import { uploadAudio, checkServerStatus, cleanupSession, searchYouTube, downloadYouTube } from './lib/api';
+import { Plus } from 'lucide-react';
 
 function AppContent() {
-  const [hasStems, setHasStems] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [uploadMode, setUploadMode] = useState<'file' | 'youtube'>('file');
-  const [selectedVideo, setSelectedVideo] = useState<YouTubeVideo | null>(null);
   const { stems, reset, setStems } = useAudioPlayer();
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [isDownloading, setIsDownloading] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
     const checkServer = async () => {
@@ -76,193 +18,147 @@ function AppContent() {
         setError('Server is currently unavailable. Please ensure the backend is running.');
       }
     };
-
     checkServer();
   }, []);
 
-  useEffect(() => {
-    setHasStems(stems.length > 0);
-  }, [stems]);
-
-  const handleYouTubeDownload = async (video: YouTubeVideo) => {
-    setSelectedVideo(video);
+  const handleFileUpload = async (file: File) => {
+    try {
+      if (currentSessionId) {
+        await cleanupSession(currentSessionId);
+      }
+      const result = await uploadAudio(file);
+      if (!result.vocals && !result.drums) {
+        throw new Error('Processing failed: No stems were returned by the server.');
+      }
+      setCurrentSessionId(result.session_id);
+      
+      setStems([
+        { name: 'Vocals', url: result.vocals, color: 'bg-[var(--stem-vocals)]', volume: 1, muted: false },
+        { name: 'Drums', url: result.drums, color: 'bg-[var(--stem-drums)]', volume: 1, muted: false },
+        { name: 'Bass', url: result.bass, color: 'bg-[var(--stem-bass)]', volume: 1, muted: false },
+        { name: 'Other', url: result.other, color: 'bg-[var(--stem-other)]', volume: 1, muted: false }
+      ]);
+      setError(null);
+    } catch (err) {
+      console.error('Upload failed:', err);
+      reset();
+      setCurrentSessionId(null);
+      setError(err instanceof Error ? err.message : 'An error occurred during processing');
+      throw err;
+    }
   };
 
-  const handleDownloadComplete = async (filename: string, session_id: string, title: string) => {
-    setIsDownloading(true);
-    setCurrentSessionId(session_id);
-
-    // Now process the downloaded file with Demucs
+  const handleYouTubeSelect = async (query: string) => {
     try {
-      const downloadUrl = `/download/${session_id}/${filename}`;
-
-      // We need to fetch the file and then process it
-      // For simplicity, we'll create a blob URL and process it
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}${downloadUrl}`);
+      if (currentSessionId) {
+        await cleanupSession(currentSessionId);
+      }
+      
+      let videoUrl = query;
+      // Search if it's not a direct URL
+      if (!query.includes('youtube.com') && !query.includes('youtu.be')) {
+        const results = await searchYouTube(query);
+        if (!results || results.length === 0) {
+          throw new Error('No videos found for this search.');
+        }
+        videoUrl = results[0].url;
+      }
+      
+      // Download the audio
+      const result = await downloadYouTube(videoUrl);
+      setCurrentSessionId(result.session_id);
+      
+      // Now process the downloaded file with Demucs
+      const downloadUrl = `/download/${result.session_id}/${result.filename}`;
+      const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5001';
+      const response = await fetch(`${API_URL}${downloadUrl}`);
       const blob = await response.blob();
-      const file = new File([blob], filename, { type: 'audio/mpeg' });
+      const file = new File([blob], result.filename, { type: 'audio/mpeg' });
 
-      // Process with Demucs (reuse the upload logic)
+      // Process with Demucs
       const formData = new FormData();
       formData.append('file', file);
-
-      const processResponse = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/process`, {
+      const processResponse = await fetch(`${API_URL}/process`, {
         method: 'POST',
         body: formData
       });
 
       if (!processResponse.ok) {
-        throw new Error('Failed to process audio');
+        const errData = await processResponse.json().catch(() => null);
+        throw new Error(errData?.error || 'Failed to process audio');
       }
 
-      const result = await processResponse.json();
+      const processData = await processResponse.json();
+      const missingStems = ['vocals', 'drums', 'bass', 'other'].filter(
+        (stemName) => !processData?.stems?.[stemName]
+      );
+      if (missingStems.length > 0) {
+        throw new Error(`Processing returned incomplete stems. Missing: ${missingStems.join(', ')}`);
+      }
 
       setStems([
-        { name: 'Vocals', url: result.stems.vocals, color: 'bg-pink-500', volume: 1, muted: false },
-        { name: 'Drums', url: result.stems.drums, color: 'bg-indigo-500', volume: 1, muted: false },
-        { name: 'Bass', url: result.stems.bass, color: 'bg-blue-500', volume: 1, muted: false },
-        { name: 'Guitar', url: result.stems.guitar, color: 'bg-amber-500', volume: 1, muted: false },
-        { name: 'Piano', url: result.stems.piano, color: 'bg-cyan-500', volume: 1, muted: false },
-        { name: 'Other', url: result.stems.other, color: 'bg-gray-400', volume: 1, muted: false }
+        { name: 'Vocals', url: processData.stems.vocals, color: 'bg-[var(--stem-vocals)]', volume: 1, muted: false },
+        { name: 'Drums', url: processData.stems.drums, color: 'bg-[var(--stem-drums)]', volume: 1, muted: false },
+        { name: 'Bass', url: processData.stems.bass, color: 'bg-[var(--stem-bass)]', volume: 1, muted: false },
+        { name: 'Other', url: processData.stems.other, color: 'bg-[var(--stem-other)]', volume: 1, muted: false }
       ]);
-      setHasStems(true);
-      setSelectedVideo(null);
+      setError(null);
+      
     } catch (err) {
-      console.error('Processing failed:', err);
-      setError('Failed to process audio');
-    } finally {
-      setIsDownloading(false);
+      console.error('YouTube Processing failed:', err);
+      setError(err instanceof Error ? err.message : 'Failed to process audio');
+      reset();
+      setCurrentSessionId(null);
+      throw err;
     }
   };
 
-  const handleCancelYouTube = () => {
-    setSelectedVideo(null);
-  };
-
   return (
-    <div className="min-h-screen pb-20">
-      <div className="max-w-[1000px] mx-auto px-6 pt-12">
-        <Header />
-
-        <main className="mt-12">
-          {!hasStems && (
-            <div className="animate-in">
-              <div className="text-center mb-16">
-                <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-4 text-[var(--apple-text)]">
-                  Stemify
-                </h1>
-                <p className="text-xl text-[var(--apple-secondary)] max-w-2xl mx-auto font-medium">
-                  Professional audio separation powered by AI.
-                  Split any track into clear, individual stems instantly.
-                </p>
-              </div>
-
-              <div className="max-w-2xl mx-auto">
-                {error && (
-                  <div className="mb-8 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-500 text-center text-sm font-medium">
-                    {error}
-                  </div>
-                )}
-
-                {/* Mode Tabs */}
-                {!selectedVideo && (
-                  <div className="flex gap-2 mb-6">
-                    <button
-                      onClick={() => setUploadMode('file')}
-                      className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 ${uploadMode === 'file'
-                        ? 'bg-[var(--apple-blue)] text-white'
-                        : 'bg-[var(--apple-card)] text-[var(--apple-secondary)] hover:bg-[var(--apple-card-hover)]'
-                        }`}
-                    >
-                      <Upload className="w-4 h-4" />
-                      Upload File
-                    </button>
-                    <button
-                      onClick={() => setUploadMode('youtube')}
-                      className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 ${uploadMode === 'youtube'
-                        ? 'bg-red-500 text-white'
-                        : 'bg-[var(--apple-card)] text-[var(--apple-secondary)] hover:bg-[var(--apple-card-hover)]'
-                        }`}
-                    >
-                      <Youtube className="w-4 h-4" />
-                      YouTube
-                    </button>
-                  </div>
-                )}
-
-                {/* Content based on mode */}
-                {selectedVideo ? (
-                  <YouTubeDownloader
-                    video={selectedVideo}
-                    onDownloadComplete={handleDownloadComplete}
-                    onCancel={handleCancelYouTube}
-                  />
-                ) : uploadMode === 'file' ? (
-                  <UploadSection />
-                ) : (
-                  <YouTubeSearch onVideoSelect={handleYouTubeDownload} />
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-24">
-                <FeatureCard
-                  title="Studio Quality"
-                  description="Powered by the latest Demucs models for crystal clear results."
-                />
-                <FeatureCard
-                  title="Total Control"
-                  description="Adjust volumes and isolate instruments with our built-in mixer."
-                />
-                <FeatureCard
-                  title="Privacy First"
-                  description="Your audio stays on your machine. No cloud tracking."
-                />
-              </div>
+    <div className="min-h-screen pb-20 select-none">
+      <div className="max-w-[1000px] mx-auto px-6 pt-12 animate-in fade-in zoom-in-95 duration-500">
+        <main className="mt-12 flex flex-col items-center justify-center min-h-[500px]">
+          {error && (
+            <div className="w-full max-w-lg mb-8 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-500 text-center text-sm font-medium animate-in fade-in slide-in-from-top-4">
+              {error}
+              <button 
+                className="ml-4 underline hover:text-red-400"
+                onClick={() => setError(null)}
+              >
+                Dismiss
+              </button>
             </div>
           )}
 
-          {hasStems && (
-            <div className="max-w-2xl mx-auto">
-              <div className="flex justify-between items-end mb-8">
-                <div>
-                  <h2 className="text-2xl font-bold tracking-tight">Project Stems</h2>
-                  <p className="text-[var(--apple-secondary)] font-medium">
-                    {selectedVideo ? `From YouTube: ${selectedVideo.title}` : 'AI Processing Complete'}
-                  </p>
-                  {isDownloading && (
-                    <p className="text-[var(--apple-blue)] text-sm font-medium mt-1">
-                      Downloading and processing...
-                    </p>
-                  )}
-                </div>
-                <button
-                  onClick={() => {
-                    reset();
-                    setHasStems(false);
-                    setSelectedVideo(null);
-                    setCurrentSessionId(null);
-                  }}
-                  className="text-sm font-semibold text-[var(--apple-blue)] hover:opacity-70 transition-opacity"
-                >
-                  Start Over
-                </button>
-              </div>
-              <Player />
-            </div>
+          <div className="mb-12 relative flex justify-center z-10">
+            <button 
+              onClick={() => setIsModalOpen(true)}
+              className="stem-button rounded-full px-8 py-3 flex items-center gap-2 text-[#5e5145] shadow-[0_4px_14px_rgba(0,0,0,0.1)] font-bold tracking-wide hover:scale-105 active:scale-95 transition-transform"
+            >
+              <Plus className="w-5 h-5" />
+              Add Song
+            </button>
+          </div>
+
+          {/* Stem Player stays permanently mounted below the add button */}
+          <div className={`${stems.length === 0 ? 'opacity-30 grayscale pointer-events-none' : 'opacity-100'} transition-all duration-1000 ease-out`}>
+             <StemPlayer />
+          </div>
+          
+          {stems.length === 0 && !error && (
+            <p className="mt-8 text-[#8b7968] font-medium tracking-wide animate-in fade-in">
+              Player is idle. Click "Add Song" to begin.
+            </p>
           )}
+
         </main>
       </div>
-    </div>
-  );
-}
 
-function FeatureCard({ title, description }: { title: string, description: string }) {
-  return (
-    <div className="text-center">
-      <h3 className="text-lg font-bold mb-2">{title}</h3>
-      <p className="text-[var(--apple-secondary)] text-sm leading-relaxed font-medium">
-        {description}
-      </p>
+      <AddSongModal 
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onFileUpload={handleFileUpload}
+        onYouTubeSelect={handleYouTubeSelect}
+      />
     </div>
   );
 }

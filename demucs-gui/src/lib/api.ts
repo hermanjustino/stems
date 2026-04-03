@@ -1,12 +1,10 @@
 // Definiamo le interfacce per i tipi
 interface StemResponse {
   stems: {
-    vocals: string;
-    drums: string;
-    bass: string;
-    other: string;
-    guitar: string;
-    piano: string;
+    vocals?: string;
+    drums?: string;
+    bass?: string;
+    other?: string;
   }
   session_id: string;
 }
@@ -16,8 +14,6 @@ interface ProcessedStems {
   drums: string;
   bass: string;
   other: string;
-  guitar: string;
-  piano: string;
   session_id: string;
 }
 
@@ -38,7 +34,7 @@ export interface YouTubeDownloadResult {
   download_url: string;
 }
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5001';
 
 export async function uploadAudio(file: File): Promise<ProcessedStems> {
   // Validazione iniziale del file
@@ -81,13 +77,17 @@ export async function uploadAudio(file: File): Promise<ProcessedStems> {
       throw new Error('Invalid server response');
     }
 
+    const requiredStems: Array<keyof StemResponse['stems']> = ['vocals', 'drums', 'bass', 'other'];
+    const missing = requiredStems.filter((stemName) => !data.stems[stemName]);
+    if (missing.length > 0) {
+      throw new Error(`Processing returned incomplete stems. Missing: ${missing.join(', ')}`);
+    }
+
     return {
-      vocals: data.stems.vocals || '',
-      drums: data.stems.drums || '',
-      bass: data.stems.bass || '',
-      other: data.stems.other || '',
-      guitar: data.stems.guitar || '',
-      piano: data.stems.piano || '',
+      vocals: data.stems.vocals as string,
+      drums: data.stems.drums as string,
+      bass: data.stems.bass as string,
+      other: data.stems.other as string,
       session_id: data.session_id || ''
     };
 

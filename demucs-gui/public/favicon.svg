@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="3" dy="3" stdDeviation="2" flood-opacity="0.3"/>
+      <feDropShadow dx="-2" dy="-2" stdDeviation="2" flood-color="#ffffff" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+  <circle cx="50" cy="50" r="46" fill="#d4c5b6" filter="url(#shadow)"/>
+  <circle cx="50" cy="50" r="12" fill="#c5b6a7" />
+  
+  <!-- Vocals (Top) -->
+  <rect x="46" y="10" width="8" height="22" rx="4" fill="#a855f7" />
+  <!-- Drums (Bottom) -->
+  <rect x="46" y="68" width="8" height="22" rx="4" fill="#ef4444" />
+  <!-- Bass (Left) -->
+  <rect x="10" y="46" width="22" height="8" rx="4" fill="#3b82f6" />
+  <!-- Other (Right) -->
+  <rect x="68" y="46" width="22" height="8" rx="4" fill="#f97316" />
+</svg>

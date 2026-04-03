@@ -84,9 +84,9 @@ def process_audio():
             output_dir = session_folder / 'separated'
             output_dir.mkdir(parents=True, exist_ok=True)
             
-            # Use htdemucs_6s model for 6 stems (vocals, drums, bass, other, guitar, piano)
-            # Ensure the command is formatted correctly
-            cmd = f'-n htdemucs_6s --mp3 --out "{output_dir}" "{file_path}"'
+            # Use htdemucs model for 4 stems (vocals, drums, bass, other)
+            # We output wav for exact playback sync
+            cmd = f'-n htdemucs --out "{output_dir}" "{file_path}"'
             print(f"Executing: demucs.separate.main({cmd})")
             demucs.separate.main(shlex.split(cmd))
             print(f"Separation complete for {file_path}")
@@ -98,28 +98,28 @@ def process_audio():
 
         # Find and prepare separated files
         stems = {}
-        model_name = 'htdemucs_6s'
+        model_name = 'htdemucs'
         separated_track_dir = output_dir / model_name / Path(filename).stem
         
         print(f"Searching for separated files in: {separated_track_dir}")
         if not separated_track_dir.exists():
             # Sometimes demucs might use a different folder structure depending on model or version
-            # Let's search for any mp3 files in the output directory
-            separated_files = list(output_dir.rglob('*.mp3'))
+            # Let's search for any wav files in the output directory
+            separated_files = list(output_dir.rglob('*.wav'))
             print(f"Found files via rglob: {separated_files}")
             if not separated_files:
                 return jsonify({'error': 'Separated files not found in output directory'}), 500
             
             for stem_file in separated_files:
                 stem_type = stem_file.stem
-                new_filename = f"{original_name}-{stem_type}.mp3"
+                new_filename = f"{original_name}-{stem_type}.wav"
                 new_file_path = session_folder / new_filename
                 shutil.copy2(stem_file, new_file_path)
                 stems[stem_type] = f'/download/{session_id}/{new_filename}'
         else:
-            for stem_file in separated_track_dir.glob('*.mp3'):
+            for stem_file in separated_track_dir.glob('*.wav'):
                 stem_type = stem_file.stem
-                new_filename = f"{original_name}-{stem_type}.mp3"
+                new_filename = f"{original_name}-{stem_type}.wav"
                 new_file_path = session_folder / new_filename
                 shutil.copy2(stem_file, new_file_path)
                 stems[stem_type] = f'/download/{session_id}/{new_filename}'
