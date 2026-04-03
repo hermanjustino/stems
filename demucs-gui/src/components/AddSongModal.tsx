@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { Upload, Youtube, X, Loader2 } from 'lucide-react';
+import { Upload, Youtube, X, Loader2, Music } from 'lucide-react';
+import { searchYouTube, YouTubeVideo } from '../lib/api';
 
 interface AddSongModalProps {
   isOpen: boolean;
@@ -11,6 +12,8 @@ interface AddSongModalProps {
 export function AddSongModal({ isOpen, onClose, onFileUpload, onYouTubeSelect }: AddSongModalProps) {
   const [url, setUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<YouTubeVideo[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
@@ -27,6 +30,8 @@ export function AddSongModal({ isOpen, onClose, onFileUpload, onYouTubeSelect }:
     try {
       await onFileUpload(file);
       onClose();
+      setSearchResults([]);
+      setUrl('');
     } catch (err) {
       console.error(err);
     } finally {
@@ -37,12 +42,44 @@ export function AddSongModal({ isOpen, onClose, onFileUpload, onYouTubeSelect }:
 
   const handleYouTubeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!url.trim()) return; // allow searching just keywords too if server supports it, otherwise url.includes('youtube.com')
+    if (!url.trim()) return;
     
+    // If it's a direct URL, bypass search and download immediately
+    if (url.includes('youtube.com/') || url.includes('youtu.be/')) {
+      setIsLoading(true);
+      try {
+        await onYouTubeSelect(url);
+        onClose();
+        setSearchResults([]);
+        setUrl('');
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    // Otherwise, search for the song
+    setIsSearching(true);
+    setSearchResults([]);
+    try {
+      const results = await searchYouTube(url);
+      setSearchResults(results);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleResultClick = async (videoUrl: string) => {
     setIsLoading(true);
     try {
-      await onYouTubeSelect(url);
+      await onYouTubeSelect(videoUrl);
       onClose();
+      setSearchResults([]);
+      setUrl('');
     } catch (err) {
       console.error(err);
     } finally {
@@ -81,10 +118,10 @@ export function AddSongModal({ isOpen, onClose, onFileUpload, onYouTubeSelect }:
               />
               <button 
                 type="submit" 
-                disabled={isLoading || !url.trim()}
-                className="absolute right-3 top-1/2 -translate-y-1/2 stem-button p-2 px-6 rounded-full text-[#5e5145] font-semibold flex items-center disabled:opacity-50"
+                disabled={isLoading || isSearching || !url.trim()}
+                className="absolute right-3 top-1/2 -translate-y-1/2 stem-button p-2 px-6 rounded-full text-[#5e5145] font-semibold flex items-center disabled:opacity-50 transition-all hover:scale-105 active:scale-95"
               >
-                {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Search'}
+                {isSearching ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Search'}
               </button>
             </div>
           </form>
@@ -117,7 +154,44 @@ export function AddSongModal({ isOpen, onClose, onFileUpload, onYouTubeSelect }:
 
         </div>
         
-        {isLoading && (
+        {/* Search Results List */}
+        {searchResults.length > 0 && !isLoading && (
+          <div className="mt-8 w-full max-h-72 overflow-y-auto pr-2 flex flex-col gap-3 custom-scrollbar animate-in slide-in-from-bottom-4 duration-300">
+            {searchResults.map((video) => (
+              <button
+                key={video.id}
+                onClick={() => handleResultClick(video.url)}
+                className="w-full text-left flex items-center gap-5 p-3 rounded-[20px] bg-white/20 hover:bg-white/40 border border-white/30 hover:border-white/60 transition-all group"
+              >
+                <div className="relative overflow-hidden rounded-xl shadow-md min-w-[120px] h-20">
+                  <img 
+                    src={video.thumbnail} 
+                    alt={video.title} 
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  />
+                  <div className="absolute inset-0 bg-black/10 group-hover:bg-black/0 transition-colors" />
+                  <div className="absolute bottom-1 right-1 bg-black/60 backdrop-blur-md text-white text-xs px-2 py-0.5 rounded-md font-medium">
+                     {Math.floor(video.duration / 60)}:{(video.duration % 60).toString().padStart(2, '0')}
+                  </div>
+                </div>
+                
+                <div className="flex-col flex-1 overflow-hidden">
+                   <h3 className="text-[#5e5145] font-bold truncate text-base mb-1">{video.title}</h3>
+                   <div className="flex items-center gap-2 text-[#8b7968]">
+                      <Youtube className="w-4 h-4 opacity-70" />
+                      <p className="text-sm truncate font-medium">{video.channel}</p>
+                   </div>
+                </div>
+
+                <div className="pr-4 opacity-0 group-hover:opacity-100 transition-opacity -translate-x-4 group-hover:translate-x-0 transform duration-300">
+                   <div className="w-10 h-10 rounded-full bg-orange-400/20 text-orange-600 flex items-center justify-center">
+                      <Music className="w-5 h-5" />
+                   </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}        {isLoading && (
           <div className="mt-10 flex flex-col items-center justify-center animate-in fade-in duration-300">
              <p className="text-[#8b7968] font-medium mb-5 animate-pulse">Processing audio stems via AI... This takes a minute.</p>
              <div className="flex gap-4">
@@ -133,3 +207,6 @@ export function AddSongModal({ isOpen, onClose, onFileUpload, onYouTubeSelect }:
     </div>
   );
 }
+
+// Global CSS for the scrollbar inside this file (optional, but cleaner if kept in index.css)
+// Assuming we already have standard custom-scrollbar or we just let it be webkit styled native
