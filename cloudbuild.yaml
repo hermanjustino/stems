@@ -1,0 +1,14 @@
+steps:
+  # Build Web Image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-east4-docker.pkg.dev/stem-splitter-492719/stemify-repo/stemify-web:latest', '-f', 'Dockerfile.web', '.']
+    id: 'build-web'
+
+  # Build Worker Image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-east4-docker.pkg.dev/stem-splitter-492719/stemify-repo/stemify-worker:latest', '-f', 'Dockerfile.worker', '.']
+    id: 'build-worker'
+
+images:
+  - 'us-east4-docker.pkg.dev/stem-splitter-492719/stemify-repo/stemify-web:latest'
+  - 'us-east4-docker.pkg.dev/stem-splitter-492719/stemify-repo/stemify-worker:latest'

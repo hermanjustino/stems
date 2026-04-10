@@ -1,0 +1,7 @@
+Flask
+flask-cors
+gunicorn
+google-cloud-storage
+google-cloud-pubsub
+werkzeug
+yt-dlp

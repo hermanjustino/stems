@@ -34,18 +34,23 @@ venv/
 .env.test.local
 .env.production.local
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
+# YouTube auth cookies
+cookies.txt
+demucs-backend/cookies.txt
+demucs-backend/*cookies*.txt
 
-# OS
-.DS_Store
-Thumbs.db
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/*.tfvars
+terraform/.terraform.lock.hcl
+
+# GCP / Credentials
+*.json
+!cloudbuild.yaml
+!demucs-backend/worker_service.yaml
 
 # Logs
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+

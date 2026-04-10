@@ -135,7 +135,7 @@ export function StemPlayer() {
   const getVolume = (name: string) => stems.find((s) => s.name === name)?.volume ?? 0;
 
   return (
-    <div className="flex flex-col items-center justify-center py-12 select-none">
+    <div className="flex flex-col items-center justify-center py-2 select-none">
       <div className="stem-device-container">
         
         {/* Vocals - Top */}
@@ -187,12 +187,6 @@ export function StemPlayer() {
         </button>
 
       </div>
-      
-      <p className="mt-12 text-[#bbaea0] font-medium tracking-wide">
-         {isBuffering ? (
-            <span className="flex items-center gap-2 animate-pulse text-[var(--stem-other)]"><Loader2 className="w-4 h-4 animate-spin"/> Loading precision uncompressed audio into RAM...</span>
-         ) : "Stem Player Online"}
-      </p>
     </div>
   );
 }

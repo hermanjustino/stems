@@ -15,7 +15,9 @@ interface AudioPlayerContextType {
   duration: number;
   masterVolume: number;
   isBuffering: boolean;
+  isProcessing: boolean;
   setStems: (stems: Stem[]) => void;
+  setIsProcessing: (isProcessing: boolean) => void;
   togglePlay: () => void;
   seek: (time: number) => void;
   setStemVolume: (stemName: string, volume: number) => void;
@@ -26,7 +28,7 @@ interface AudioPlayerContextType {
 
 const AudioPlayerContext = createContext<AudioPlayerContextType | undefined>(undefined);
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5001';
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? '' : 'http://127.0.0.1:5001');
 
 export function AudioPlayerProvider({ children }: { children: React.ReactNode }) {
   const [stems, setStems] = useState<Stem[]>([]);
@@ -35,6 +37,7 @@ export function AudioPlayerProvider({ children }: { children: React.ReactNode })
   const [duration, setDuration] = useState(0);
   const [masterVolume, setMasterVolumeState] = useState(1);
   const [isBuffering, setIsBuffering] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   
   // Web Audio Context refs
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -274,7 +277,9 @@ export function AudioPlayerProvider({ children }: { children: React.ReactNode })
         duration,
         masterVolume,
         isBuffering,
+        isProcessing,
         setStems,
+        setIsProcessing,
         togglePlay,
         seek,
         setStemVolume,

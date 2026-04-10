@@ -1,0 +1,30 @@
+# Stage 1: Build React
+FROM node:20-alpine AS builder
+WORKDIR /app/gui
+COPY demucs-gui/package*.json ./
+RUN npm install
+COPY demucs-gui/ ./
+# We need to ensure the VITE_API_URL is relative so it calls the same domain in production
+# Cloud Run automatically routes requests correctly.
+RUN VITE_API_URL="" npm run build
+
+# Stage 2: Web API
+FROM python:3.11-slim
+WORKDIR /app
+
+# Install dependencies
+COPY demucs-backend/requirements-web.txt .
+RUN pip install --no-cache-dir -r requirements-web.txt
+
+# Copy backend code
+COPY demucs-backend/web.py .
+COPY demucs-backend/gunicorn_config.py .
+
+# Copy built static files from Stage 1
+COPY --from=builder /app/gui/dist /app/static
+
+# Expose standard Cloud Run port
+ENV PORT=8080
+EXPOSE 8080
+
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--threads", "8", "--timeout", "0", "web:app"]

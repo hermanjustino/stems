@@ -1,0 +1,10 @@
+.git
+node_modules
+temp/
+__pycache__
+.venv
+venv
+*.pyc
+.env
+gunicorn.log
+.gemini/

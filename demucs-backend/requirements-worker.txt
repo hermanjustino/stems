@@ -1,0 +1,5 @@
+Flask
+gunicorn
+demucs[yt]
+yt-dlp
+google-cloud-storage

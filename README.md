@@ -1,142 +1,116 @@
-<p align="center">
-  <img src="demucs-gui/public/logo.png" alt="Stemify - The Audio Splitter" width="300">
-</p>
+# Stemify - Audio Splitter
 
-# Stemify - The Audio Splitter
+Stemify is a web app for splitting songs into stems (vocals, drums, bass, other) using Demucs.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://python.org)
-[![React](https://img.shields.io/badge/React-19+-61DAFB.svg)](https://reactjs.org)
-[![Flask](https://img.shields.io/badge/Flask-2.0+-green.svg)](https://flask.palletsprojects.com)
-[![AI](https://img.shields.io/badge/AI-Demucs%20v4-purple.svg)](https://github.com/facebookresearch/demucs)
-[![Platform](https://img.shields.io/badge/Platform-Web%20%7C%20macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)]()
+Current state:
+- React/Vite frontend (`demucs-gui`)
+- Flask web API service for job creation and status (`demucs-backend/web.py`)
+- Flask GPU worker for Pub/Sub processing (`demucs-backend/worker.py`)
+- Asynchronous pipeline on GCP: Cloud Run + Pub/Sub + Cloud Storage + Secret Manager
 
-A web application for audio track separation. This application allows you to upload an audio file and separate it into its components: vocals, drums, bass, and other instruments.
+## Architecture (Current)
 
-## 🚀 Features
+1. Frontend calls `/process` or `/youtube/download` on the web API.
+2. Web API uploads source files to Cloud Storage and publishes Pub/Sub jobs.
+3. GPU worker receives push messages, downloads source, runs Demucs, uploads stem WAV files to Cloud Storage.
+4. Frontend polls `/status/<session_id>` until completed.
+5. Downloads are served via `/download/<session_id>/<filename>`.
 
-- Intuitive web interface
-- Real-time track separation using AI
-- Audio preview of separated tracks
-- Download individual tracks
-- Support for various audio formats
-- Fast processing with Demucs v4
+Primary files:
+- Web API: `demucs-backend/web.py`
+- Worker: `demucs-backend/worker.py`
+- Terraform: `terraform/main.tf`
+- Web image Dockerfile: `Dockerfile.web`
+- Worker image Dockerfile (GPU): `Dockerfile` (your build workflow swaps in `Dockerfile.worker`)
 
-## 📋 Prerequisites
+## Local Development
 
-- Python 3.12 or higher
-- uv (Python package manager) - install it with: `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- npm (Node Package Manager)
-- Git
+### Backend (legacy/local synchronous mode)
+Use `app.py` for local development/debug:
 
-## 💻 Installation
-
-### Quick Installation for Linux and macOS
-
-1. Clone the repository:
-```bash
-git clone https://github.com/huchukato/stemify-audio-splitter.git
-cd stemify-audio-splitter
-```
-
-2. Run the installation script:
-```bash
-chmod +x linux_mac_install_run.sh
-./linux_mac_install_run.sh
-```
-
-3. Open your browser and navigate to `http://localhost:5173`
-
-### Manual Installation
-
-1. **Backend Setup:**
 ```bash
 cd demucs-backend
-uv sync
-mkdir -p temp separated
-uv run python -m gunicorn --bind 0.0.0.0:5001 --workers 1 --timeout 120 app:app
+export YTDLP_COOKIEFILE="$PWD/cookies.txt"
+uv run python app.py
 ```
 
-2. **Frontend Setup** (in another terminal):
+### Frontend
+
 ```bash
 cd demucs-gui
 npm install
-npm run dev
+npm run dev -- --port 5173
 ```
 
-3. Open your browser and navigate to `http://localhost:5173`
+Open `http://localhost:5173`.
 
-## 🎵 How to Use
+## GCP Deployment (Current Workflow)
 
-1. Upload an audio file (MP3, WAV, FLAC, etc.)
-2. Wait for the AI to process and separate the tracks
-3. Preview each separated track
-4. Download the individual tracks you want
+Project: `stem-splitter-492719`  
+Region: `us-east4`
 
-## 🛠️ Technology Stack
+### 1. Build Web Image
 
-- **Backend:** Flask + Demucs v4
-- **Frontend:** React + Vite + Tailwind CSS
-- **Audio Processing:** Facebook's Demucs v4 model
-- **Package Management:** uv (Python), npm (Node.js)
-
-### Windows Installation
-
-1. Clone the repository:
-```powershell
-git clone https://github.com/huchukato/stemify-audio-splitter.git
-cd stemify-audio-splitter
+```bash
+mv Dockerfile.web Dockerfile
+gcloud builds submit --project=stem-splitter-492719 --tag us-east4-docker.pkg.dev/stem-splitter-492719/stemify-repo/stemify-web .
+mv Dockerfile Dockerfile.web
 ```
 
-2. Run the installation script:
-```powershell
-.\win_install_run.bat
+### 2. Build GPU Worker Image
+
+```bash
+mv Dockerfile.worker Dockerfile
+gcloud builds submit --project=stem-splitter-492719 --tag us-east4-docker.pkg.dev/stem-splitter-492719/stemify-repo/stemify-worker .
+mv Dockerfile Dockerfile.worker
 ```
 
-3. Open your browser and navigate to `http://localhost:5173`
+Note: The worker build can take longer because CUDA/PyTorch dependencies and Demucs model caching are heavy.
 
-## 🎵 How to Use
+### 3. Provision Infra with Terraform
 
-1. Upload an audio file (MP3, WAV, FLAC, etc.)
-2. Wait for the AI to process and separate the tracks
-3. Preview each separated track
-4. Download the individual tracks you want
+```bash
+cd terraform
+terraform init
+terraform plan
+terraform apply
+```
 
-## 🔧 Troubleshooting
+This creates:
+- Cloud Storage bucket for uploads/completed stems
+- Pub/Sub topic/subscription for worker jobs
+- Secret Manager secret for YouTube cookies
+- Cloud Run web service
+- Cloud Run GPU worker service (NVIDIA L4 annotation)
 
-- **Backend not starting:** Make sure port 5001 is not in use
-- **Frontend not loading:** Check that npm installed successfully
-- **Audio processing fails:** Ensure the audio file is under 20MB
+## YouTube Authentication Notes
 
-## �️ Security
+YouTube extraction may require valid cookies.
 
-This project maintains a strong security posture with regular vulnerability assessments and prompt patching.
+- Local: place cookies at `demucs-backend/cookies.txt`
+- Cloud: secret is read from Secret Manager (`ytdlp-cookies`) by worker
 
-### **Recent Security Fixes:**
-- ✅ **March 2026**: Complete security audit resolution
-  - Fixed all 15+ vulnerabilities via npm audit
-  - Updated rollup (CVE-2026-27606), tar (CVE-2026-26960), minimatch (CVE-2026-27903)
-  - Resolved all HIGH and MODERATE severity alerts
-  - **Status**: 0 vulnerabilities (npm audit)
+`cookies.txt` is ignored via `.gitignore`.
 
-### **Security Practices:**
-- 🔍 **Regular Audits**: Automated Dependabot monitoring
-- 🚀 **Prompt Updates**: Security patches applied immediately
-- 📋 **Vulnerability Disclosure**: Transparent security reporting
-- 🔒 **Secure Dependencies**: All packages kept up-to-date
+## Key Environment Variables
 
-## �📝 License
+Web service:
+- `GCS_BUCKET`
+- `PUBSUB_TOPIC`
 
-This project is open source and available under the [MIT License](LICENSE).
+Worker service:
+- `GCS_BUCKET`
+- `GOOGLE_CLOUD_PROJECT`
+- `ytdlp-cookies` secret mounted/read by worker
 
-## 👥 Author
+## Tech Stack
 
-- **huchukato**
-  - 🐙 [GitHub](https://github.com/huchukato)
-  - 🐦 [X (Twitter)](https://twitter.com/huchukato)
-  - 🎨 [Civitai](https://civitai.com/user/huchukato) - Check out my AI art models!
+- Frontend: React 19, Vite, TypeScript, Tailwind
+- Web API / Worker: Flask, Gunicorn
+- Audio splitting: Demucs (PyTorch)
+- Cloud: Cloud Run, Pub/Sub, Cloud Storage, Secret Manager
+- IaC: Terraform
 
-## 🙏 Acknowledgments
+## License
 
-- [Facebook Research](https://github.com/facebookresearch/demucs) for the Demucs v4 model
-- The open-source community for the amazing tools and libraries used in this project
+MIT License. See [LICENSE](LICENSE).

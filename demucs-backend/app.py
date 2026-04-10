@@ -9,6 +9,7 @@ from werkzeug.utils import secure_filename
 import shutil
 import uuid
 import yt_dlp
+from yt_dlp.utils import DownloadError
 
 app = Flask(__name__, static_folder=os.path.abspath('static'), static_url_path='')
 # Explicit CORS config for the development frontend
@@ -40,6 +41,75 @@ UPLOAD_FOLDER = BASE_DIR / 'temp'
 
 # Ensure directory exists
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
+
+def apply_ytdlp_auth_options(ydl_opts):
+    """
+    Adds optional authentication options for yt-dlp.
+    Supported env vars:
+      - YTDLP_COOKIEFILE=/abs/path/to/cookies.txt
+      - YTDLP_COOKIES_FROM_BROWSER=chrome|firefox|edge|safari|brave[:profile_or_container]
+    """
+    cookiefile = os.getenv('YTDLP_COOKIEFILE', '').strip()
+    if cookiefile:
+        ydl_opts['cookiefile'] = cookiefile
+        print(f"yt-dlp: using cookie file at {cookiefile}")
+
+    cookies_from_browser = os.getenv('YTDLP_COOKIES_FROM_BROWSER', '').strip()
+    if cookies_from_browser:
+        # Accept "chrome" or "chrome:Default" etc.
+        parts = [p.strip() for p in cookies_from_browser.split(':', 1)]
+        browser = parts[0]
+        profile = parts[1] if len(parts) > 1 and parts[1] else None
+        ydl_opts['cookiesfrombrowser'] = (browser, profile) if profile else (browser,)
+        print(f"yt-dlp: using browser cookies from {cookies_from_browser}")
+
+    # EJS / signature challenge solving defaults for newer YouTube protections.
+    # Can be overridden with env vars:
+    #   YTDLP_JS_RUNTIMES=node
+    #   YTDLP_REMOTE_COMPONENTS=ejs:github
+    js_runtimes = os.getenv('YTDLP_JS_RUNTIMES', 'node').strip()
+    if js_runtimes:
+        # yt-dlp expects a dict format: {runtime_name: {config}}
+        ydl_opts['js_runtimes'] = {
+            item.strip(): {}
+            for item in js_runtimes.split(',')
+            if item.strip()
+        }
+
+    remote_components = os.getenv('YTDLP_REMOTE_COMPONENTS', 'ejs:github').strip()
+    if remote_components:
+        ydl_opts['remote_components'] = [item.strip() for item in remote_components.split(',') if item.strip()]
+
+    return ydl_opts
+
+def classify_ytdlp_error(err_msg: str, stage: str):
+    """
+    Map common yt-dlp failures to clearer API responses.
+    """
+    lower_msg = err_msg.lower()
+
+    if "sign in to confirm you're not a bot" in lower_msg or "use --cookies" in lower_msg:
+        return {
+            "status": 403,
+            "code": "youtube_auth_required",
+            "user_message": (
+                f"YouTube {stage} requires authentication cookies. "
+                "Configure YTDLP_COOKIEFILE or YTDLP_COOKIES_FROM_BROWSER on the backend."
+            ),
+        }
+
+    if "429" in lower_msg or "too many requests" in lower_msg:
+        return {
+            "status": 429,
+            "code": "youtube_rate_limited",
+            "user_message": f"YouTube is rate limiting {stage} requests right now. Please retry later.",
+        }
+
+    return {
+        "status": 502,
+        "code": "youtube_upstream_error",
+        "user_message": f"YouTube {stage} failed due to an upstream extraction error.",
+    }
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
@@ -187,7 +257,9 @@ def youtube_search():
             'no_warnings': True,
             'extract_flat': True,
             'default_search': 'ytsearch10',  # Search YouTube, return 10 results
+            'noplaylist': True,
         }
+        ydl_opts = apply_ytdlp_auth_options(ydl_opts)
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             results = ydl.extract_info(f"ytsearch10:{query}", download=False)
@@ -207,9 +279,26 @@ def youtube_search():
             
             return jsonify({'results': videos}), 200
             
+    except DownloadError as e:
+        err_msg = str(e)
+        mapped = classify_ytdlp_error(err_msg, stage='search')
+        print(f"[YouTube search] DownloadError: {err_msg}")
+        return jsonify({
+            'error': mapped['user_message'],
+            'code': mapped['code'],
+            'stage': 'search',
+            'details': err_msg
+        }), mapped['status']
     except Exception as e:
-        print(f"Error searching YouTube: {str(e)}")
-        return jsonify({'error': 'Failed to search YouTube'}), 500
+        print(f"[YouTube search] Unexpected error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'error': 'Unexpected backend error during YouTube search.',
+            'code': 'youtube_search_internal_error',
+            'stage': 'search',
+            'details': str(e)
+        }), 500
 
 # YouTube Download Endpoint
 @app.route('/youtube/download', methods=['POST'])
@@ -239,7 +328,9 @@ def youtube_download():
             'outtmpl': output_template,
             'quiet': True,
             'no_warnings': True,
+            'noplaylist': True,
         }
+        ydl_opts = apply_ytdlp_auth_options(ydl_opts)
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=True)
@@ -276,11 +367,26 @@ def youtube_download():
             'download_url': f'/download/{session_id}/{final_filename}'
         }), 200
         
+    except DownloadError as e:
+        err_msg = str(e)
+        mapped = classify_ytdlp_error(err_msg, stage='download')
+        print(f"[YouTube download] DownloadError: {err_msg}")
+        return jsonify({
+            'error': mapped['user_message'],
+            'code': mapped['code'],
+            'stage': 'download',
+            'details': err_msg
+        }), mapped['status']
     except Exception as e:
-        print(f"Error downloading from YouTube: {str(e)}")
+        print(f"[YouTube download] Unexpected error: {str(e)}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'error': 'Unexpected backend error during YouTube download.',
+            'code': 'youtube_download_internal_error',
+            'stage': 'download',
+            'details': str(e)
+        }), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5001)

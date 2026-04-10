@@ -212,3 +212,12 @@ input[type='range']:active::-webkit-slider-thumb {
     inset -2px -2px 4px rgba(255, 255, 255, 0.5),
     inset 2px 2px 4px rgba(180, 160, 140, 0.5);
 }
+
+.stem-help-popup {
+  background: #d4c5b6;
+  border-radius: 18px;
+  box-shadow:
+    -6px -6px 14px rgba(255, 255, 255, 0.55),
+    6px 6px 14px rgba(180, 160, 140, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}

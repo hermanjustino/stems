@@ -1,0 +1,61 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  annotations:
+    run.googleapis.com/ingress: internal
+    run.googleapis.com/ingress-status: internal
+    run.googleapis.com/maxScale: '3'
+    run.googleapis.com/urls: '["https://stemify-worker-747452944820.us-east4.run.app","https://stemify-worker-vlongxljpa-uk.a.run.app"]'
+  labels:
+    cloud.googleapis.com/location: us-east4
+    run.googleapis.com/satisfiesPzs: 'true'
+  name: stemify-worker
+  namespace: '747452944820'
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: '3'
+        autoscaling.knative.dev/minScale: '0'
+        run.googleapis.com/client-name: gcloud
+        run.googleapis.com/client-version: 549.0.1
+        run.googleapis.com/cpu-throttling: 'false'
+        run.googleapis.com/sessionAffinity: 'false'
+      labels:
+        client.knative.dev/nonce: yfvofrdxsp
+        run.googleapis.com/startupProbeType: Default
+    spec:
+      containerConcurrency: 1
+      containers:
+      - env:
+        - name: GCS_BUCKET
+          value: stem-splitter-492719-demucs-stems
+        image: us-east4-docker.pkg.dev/stem-splitter-492719/stemify-repo/stemify-worker:latest
+        ports:
+        - containerPort: 8080
+          name: http1
+        resources:
+          limits:
+            cpu: '4'
+            memory: 8Gi
+        startupProbe:
+          failureThreshold: 1
+          periodSeconds: 240
+          tcpSocket:
+            port: 8080
+          timeoutSeconds: 240
+        volumeMounts:
+        - mountPath: /secrets
+          name: cookies-mount
+      serviceAccountName: 747452944820-compute@developer.gserviceaccount.com
+      timeoutSeconds: 3600
+      volumes:
+      - name: cookies-mount
+        secret:
+          items:
+          - key: latest
+            path: cookies.txt
+          secretName: ytdlp-cookies
+  traffic:
+  - latestRevision: true
+    percent: 100
